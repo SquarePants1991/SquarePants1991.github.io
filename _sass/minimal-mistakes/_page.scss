@@ -20,6 +20,10 @@
   }
 }
 
+img {
+  display: block;
+}
+
 .page {
 
   @include breakpoint($large) {
