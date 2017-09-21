@@ -1,0 +1,149 @@
+---
+layout: post
+title: 教你制作迷雾
+date: 2017-09-21 15:09:06 +0800
+categories: 学习OpenGLES系列文章
+---
+
+### [获取示例代码](https://github.com/SquarePants1991/OpenGLESLearn){:target="_blank"}，本文代码在分支chapter27中。
+***
+
+
+### 前言
+本文将为大家介绍一种常见的3D技术-雾（fog）。雾可以让你看不清远处的物体，除了模拟真实环境中的雾效果以外，还可以用来遮挡修饰远处细节精度比较低的模型，让它们看起来没那么粗糙。本文将介绍雾的三种基本实现方式。代码主要集中在Shader中。我们开始吧。
+
+### 原理
+雾效果的制作并不需要额外的几何体或者是粒子发射器，当然如果可以配合一些粒子效果会更好。雾的实现主要依赖于修改已有模型的颜色，根据渲染的顶点与观察者的距离，将雾的颜色与当前颜色混合。下面是2次exp计算模型的效果图，可以先感受一下。地形和天空都是上一篇文章使用的。
+![](http://upload-images.jianshu.io/upload_images/2949750-9879d526f10e2ddc.jpg?imageMogr2/auto-orient/strip)
+
+### 线性计算模型
+我们先来看雾的线性计算模型，在这个模型下，我们要指定雾的起点，终点。也就是说雾在距离你多少的地方开始，距离多少的地方结束。接着根据当前渲染的fragment在该区域内的位置计算雾的占比因子，距离越远，雾应该越浓。所以随着和观察者距离的增加，占比因子应该从0到1。下面是公式和曲线图。
+
+![](http://upload-images.jianshu.io/upload_images/2949750-00dd106f2c3fc30b.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+上面的公式开始的距离值是2，结束的距离值是5，在0到2的区域，是没有雾的，因此雾的占比因子是都是0。超过5的区域，雾占比100%。设开始位置为`fogStart`，结束位置为`fogEnd`，当前位置距离观察者`distance`。可以得到雾的占比因子`fogFactor`线性计算公式。`clamp`函数将`fogFactor`约束在0到1的范围中。
+```
+fogFactor = 1 - (fogEnd - distance) / (fogEnd - fogStart)
+fogFactor = clamp(fogFactor, 0, 1)
+```
+接下来我们可以就很轻松的在Shader中实现了。下面的方法利用上面的公式计算了雾的占比因子。
+```c
+float linearFogFactor(float fogStart, float fogEnd) {
+    vec4 worldVertexPosition = modelMatrix * vec4(fragPosition, 1.0);
+    float distanceToEye = distance(eyePosition, worldVertexPosition.xyz);
+    // linear
+    float fogFactor = (fogEnd - distanceToEye) / (fogEnd - fogStart); // 1.0 ~ 0.0
+    fogFactor = 1.0 - clamp(fogFactor, 0.0, 1.0);  // 0.0 ~ 1.0
+    return fogFactor;
+}
+```
+计算完占比因子后，使用`mix`方法将原来的fragment颜色和雾的颜色按照因子混合。最后将混合后的颜色返回给`gl_FragColor`就大功告成了。
+```c
+mix(inputColor, fog.fogColor, fogFactor);
+```
+
+### exp计算模型
+exp计算模型是利用常量e来参与公式计算的一个模型。公式和曲线如下。
+![](http://upload-images.jianshu.io/upload_images/2949750-b2fe0d2673e4b94c.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+公式中的0.5可以表示为雾的浓度，这个值越小，曲线上升的越慢，表现出来的现象就是雾变浓的速度越来越慢。设雾的浓度为`fogDensity`，当前位置距离观察者`distance`，得到的公式如下。
+```
+fogFactor = 1 - 1 / e^(distance * fogDensity)
+fogFactor = clamp(fogFactor, 0, 1)
+```
+在Shader中实现如下。计算出来的和上面一样，依然是雾的占比因子。
+```c
+float exponentialFogFactor(float fogDensity) {
+    vec4 worldVertexPosition = modelMatrix * vec4(fragPosition, 1.0);
+    float distanceToEye = distance(eyePosition, worldVertexPosition.xyz);
+    float fogFactor = 1.0 / exp(distanceToEye * fogDensity);
+    fogFactor = 1.0 - clamp(fogFactor, 0.0, 1.0);  // 0.0 ~ 1.0
+    return fogFactor;
+}
+```
+
+### 2次exp计算模型
+相比于exp计算模型，这个模型只是将公式增加了一个2次方。
+```
+fogFactor = 1 - 1 / e^((distance * fogDensity)^2)
+fogFactor = clamp(fogFactor, 0, 1)
+```
+公式曲线如下。
+![](http://upload-images.jianshu.io/upload_images/2949750-8091a2f4b569e08c.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+Shader中实现如下。
+```c
+float exponentialSquareFogFactor(float fogDensity) {
+    vec4 worldVertexPosition = modelMatrix * vec4(fragPosition, 1.0);
+    float distanceToEye = distance(eyePosition, worldVertexPosition.xyz);
+    float fogFactor = 1.0 / exp(pow(distanceToEye * fogDensity, 2.0));
+    fogFactor = 1.0 - clamp(fogFactor, 0.0, 1.0);  // 0.0 ~ 1.0
+    return fogFactor;
+}
+```
+
+### 最终的Shader
+Shader中包含3种雾的计算方式，通过fogType决定使用哪种。fogType和其他雾的相关参数被配置在Fog结构体中。
+```c
+struct Fog {
+    int fogType; // 0: 线性，1: exp 2: 2次exp
+    float fogStart;
+    float fogEnd;
+    float fogIndensity;
+    vec3 fogColor;
+};
+```
+在`colorWithFog`统一处理雾的计算。
+```c
+vec3 colorWithFog(vec3 inputColor) {
+    float fogFactor = 0.0;
+    if (fog.fogType == 0) {
+        fogFactor = linearFogFactor(fog.fogStart, fog.fogEnd);
+    } else if (fog.fogType == 1) {
+        fogFactor = exponentialFogFactor(fog.fogIndensity);
+    } else if (fog.fogType == 2) {
+        fogFactor = exponentialSquareFogFactor(fog.fogIndensity);
+    }
+    return mix(inputColor, fog.fogColor, fogFactor);
+}
+```
+
+### 传值给Fog
+在OC代码中，定义了新的结构体Fog描述雾的信息。
+```objc
+typedef enum : NSUInteger {
+    FogTypeLinear = 0,
+    FogTypeExp = 1,
+    FogTypeExpSquare  = 2,
+} FogType;
+
+typedef struct {
+    FogType fogType;
+    // for linear
+    GLfloat fogStart;
+    GLfloat fogEnd;
+    // for exp & exp square
+    GLfloat fogIndensity;
+    GLKVector3 fogColor;
+} Fog;
+```
+接着初始化Fog对象。
+```objc
+Fog fog;
+fog.fogColor = GLKVector3Make(1, 1,1);
+fog.fogStart = 0;
+fog.fogEnd = 200;
+fog.fogIndensity = 0.02;
+fog.fogType = FogTypeExpSquare;
+self.fog = fog;
+```
+最后传递给Shader，注意，所有被渲染物体使用的Shader都必须实现Fog。本文中只在frag_terrain.glsl和frag_skybox.glsl中实现了，因为只渲染了天空盒和地形。
+```objc
+- (void)bindFog:(GLContext *)context {
+    [context setUniform1i:@"fog.fogType" value:self.fog.fogType];
+    [context setUniform1f:@"fog.fogStart" value:self.fog.fogStart];
+    [context setUniform1f:@"fog.fogEnd" value:self.fog.fogEnd];
+    [context setUniform1f:@"fog.fogIndensity" value:self.fog.fogIndensity];
+    [context setUniform3fv:@"fog.fogColor" value:self.fog.fogColor];
+}
+```
+
+### 总结
+雾除了这三种基础的计算模型外，还有其他改进型的方案。比如体积雾，Atmospheric Fog等等，但是基本原理都是一样的，只不过使用了更加仿真的公式。
