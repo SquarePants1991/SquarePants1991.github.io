@@ -8,8 +8,6 @@ categories: 学习OpenGLES系列文章
 ### [获取示例代码](https://github.com/SquarePants1991/OpenGLESLearn){:target="_blank"}，本文代码在分支chapter28中。
 ***
 
-![牛顿的占位图](http://upload-images.jianshu.io/upload_images/2949750-a1a129a1c44ffcb7.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
-
 ### 前言
 本文将介绍3D物理引擎Bullet的基本使用方式以及如何将之前的OpenGL渲染代码和Bullet相结合，制造一个符合物理运动规则的虚拟3D场景。下面是效果图。
 ![](http://upload-images.jianshu.io/upload_images/2949750-77ee5a6bac9cba52.gif?imageMogr2/auto-orient/strip)
