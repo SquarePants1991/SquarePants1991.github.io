@@ -1,0 +1,182 @@
+---
+layout: post
+title: 物理引擎
+date: 2017-10-13 15:47:11 +0800
+categories: 学习OpenGLES系列文章
+---
+
+### [获取示例代码](https://github.com/SquarePants1991/OpenGLESLearn){:target="_blank"}，本文代码在分支chapter28中。
+***
+
+![牛顿的占位图](http://upload-images.jianshu.io/upload_images/2949750-a1a129a1c44ffcb7.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+
+### 前言
+本文将介绍3D物理引擎Bullet的基本使用方式以及如何将之前的OpenGL渲染代码和Bullet相结合，制造一个符合物理运动规则的虚拟3D场景。下面是效果图。
+![](http://upload-images.jianshu.io/upload_images/2949750-77ee5a6bac9cba52.gif?imageMogr2/auto-orient/strip)
+
+### Bullet
+Bullet是一个开源的物理引擎，使用C++编写，可以前往[它的Github地址](https://github.com/bulletphysics/bullet3){:target="_blank"}查看它的最新源代码。最新的Bullet是Bullet3，不过本文并没有采用新的版本，而是使用的Bullet2的代码。例子中通过源代码集成的方式集成Bullet，将核心代码直接拷贝到iOS项目中。
+
+### 集成Bullet
+首先clone Bullet的源代码。将下面的部分拷贝到iOS项目中。
+
+![](http://upload-images.jianshu.io/upload_images/2949750-435589f2ac991de3.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+我将它拷贝到了项目的`Physics Engine/Bullet`目录下。
+![](http://upload-images.jianshu.io/upload_images/2949750-c225534ee127905b.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+然后在Build Setting中添加用户头文件搜索路径。这是为了让Bullet的代码可以include到正确的文件。
+![](http://upload-images.jianshu.io/upload_images/2949750-6d8d8a0f7767d1da.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+
+### 配置物理引擎
+我创建了`PhysicsEngine`类封装Bullet的主要功能，因为Bullet是C++写的，我不希望我的其他OC代码直接使用C++代码，这会使得我的项目里面到处都是mm文件。目前的例子很简单，`PhysicsEngine`做的事情就是初始化物理世界，向物理世界添加刚体和同步刚体的变换矩阵这几件事。下面是构建一个物理世界需要的几个重要变量，`btDiscreteDynamicsWorld`是最终要生成的物理世界，`btDbvtBroadphase`用来执行快速碰撞检测， `btDefaultCollisionConfiguration`将会执行更加细粒度的碰撞检测。`btSequentialImpulseConstraintSolver`会解决受力，约束等复杂问题，往往是性能的瓶颈，所以会有一些并行的版本。
+```objc
+btDefaultCollisionConfiguration *configration;
+btCollisionDispatcher *dispatcher;
+btSequentialImpulseConstraintSolver *solver;
+btDbvtBroadphase *broadphase;
+    
+btDiscreteDynamicsWorld *world;
+```
+在`init`中初始化这些变量。并且设置重力`world->setGravity(btVector3(0,-9.8,0));`。我设置了一个比较仿真的值-9.8，方向是y轴向下的。
+```objc
+- (instancetype)init
+{
+    self = [super init];
+    if (self) {
+        configration = new btDefaultCollisionConfiguration();
+        dispatcher = new btCollisionDispatcher(configration);
+        solver = new btSequentialImpulseConstraintSolver();
+        broadphase = new btDbvtBroadphase();
+        
+        world = new btDiscreteDynamicsWorld(dispatcher,broadphase,solver,configration);
+        
+        world->setGravity(btVector3(0,-9.8,0));
+        
+        rigidBodies = [NSMutableSet new];
+    }
+    return self;
+}
+```
+
+### 刚体（Rigidbody）
+刚体是物理引擎中一个重要的概念，你可以把它当作一个不会形变，质量固定的物体，它有自己的形状，比如一个木箱子。在Bullet中，使用`btRigidBody`来表示刚体，将刚体加入物理世界，他就会在重力以及其他力的驱使下运动了。下面是加入新的刚体的代码。
+```objc
+- (void)addRigidBody:(RigidBody *)rigidBody {
+    btTransform defaultTransform = btTransformFromGLK(rigidBody.rigidBodyTransform);
+    btDefaultMotionState *motionState = new btDefaultMotionState(defaultTransform);
+    btVector3 fallInertia(0,0,0);
+    btCollisionShape *collisionShape = [self buildCollisionShape: rigidBody];
+    collisionShape->calculateLocalInertia(rigidBody.mass, fallInertia);
+    btRigidBody *btrigidBody = new btRigidBody(rigidBody.mass, motionState, collisionShape, fallInertia);
+    btrigidBody->setRestitution(rigidBody.restitution);
+    btrigidBody->setFriction(rigidBody.friction);
+
+    world->addRigidBody(btrigidBody);
+    btrigidBody->setUserPointer((__bridge void *)rigidBody);
+    rigidBody.rawBtRigidBodyPointer = btrigidBody;
+    [rigidBodies addObject:rigidBody]; // 保证对rigidBody的持有
+}
+```
+`RigidBody`是我自己建立的OC类，目的也是为了避免OC代码和C++代码的过多交互。主要为了封装`btRigidBody`所需要的基本数据以及同步对应`btRigidBody`的模型变换矩阵。这样OpenGL绘制代码只要和`RigidBody`类交互即可。`btRigidBody`的创建需要质量（mass），初始状态（motionState），刚体的形状（collisionShape）,恢复系数（Restitution），摩擦系数（Friction）等等。本文只使用了Box这个形状，在`buildCollisionShape`中创建。
+```objc
+- (btCollisionShape *)buildCollisionShape:(RigidBody *)rigidBody {
+    if (rigidBody.rigidbodyShape.type == RigidBodyShapeTypeBox) {
+        GLKVector3 boxSize = rigidBody.rigidbodyShape.shapes.box.size;
+        return new btBoxShape(btVector3(boxSize.x / 2.0, boxSize.y / 2.0, boxSize.z / 2.0));
+    }
+    return new btSphereShape(1.0);
+}
+```
+最后在`update`方法中同步刚体的变换矩阵。
+```objc
+- (void)update:(NSTimeInterval)deltaTime {
+    // deltaTime is Seconds
+    world->stepSimulation((btScalar)deltaTime);
+    [self syncRigidBodies];
+}
+...
+- (void)syncRigidBodies {
+    for (RigidBody * rigidBody in rigidBodies) {
+        btRigidBody *btrigidBody = (btRigidBody *)rigidBody.rawBtRigidBodyPointer;
+        rigidBody.rigidBodyTransform = glkTransformFromBT(btrigidBody->getWorldTransform());
+    }
+}
+```
+
+### 结合物理和绘制
+通过`PhysicsEngine`已经可以在物理世界里模拟出任意个Box的运动情况了，接下来我们要将之前绘制的几何体和刚体绑定起来。我创建了`GameObject`类绑定两者。
+```objc
+@interface GameObject : NSObject
+@property (strong, nonatomic) GLObject * geometry;
+@property (strong, nonatomic) RigidBody * rigidBody;
+
+- (instancetype)initWithGeometry:(GLObject *)geometry rigidBody:(RigidBody *)rigidBody;
+- (void)update:(NSTimeInterval)deltaTime;
+```
+这个类要做的就是将刚体的变换信息同步给几何体的`ModelMatrix`。不过刚体并不需要同步缩放变换，所以代码中将它特别提取了出来。
+```objc
+- (instancetype)initWithGeometry:(GLObject *)geometry rigidBody:(RigidBody *)rigidBody
+{
+    self = [super init];
+    if (self) {
+        self.geometry = geometry;
+        self.rigidBody = rigidBody;
+        self.rigidBody.rigidBodyTransform = geometry.modelMatrix;
+        // 提取出原始的缩放分量，平移和旋转交给物理引擎去处理
+        originGeometryMatrix = GLKMatrix4MakeScale(self.geometry.modelMatrix.m00, self.geometry.modelMatrix.m11, self.geometry.modelMatrix.m22);
+    }
+    return self;
+}
+
+- (void)update:(NSTimeInterval)deltaTime {
+    if (self.rigidBody) {
+        if (self.geometry) {
+            self.geometry.modelMatrix = GLKMatrix4Multiply(self.rigidBody.rigidBodyTransform, originGeometryMatrix);
+            [self.geometry update:deltaTime];
+        }
+    }
+}
+```
+
+### 最后一步
+最后回到`ViewController`，初始化一个物理引擎`PhysicsEngine`，创建一个质量为0的Box作为地板，每次点击屏幕创建一个新的质量为1的Box。
+```objc
+// Physics
+self.physicsEngine = [PhysicsEngine new];
+// Static Floor
+[self createPhysicsCube: GLKVector3Make(8, 0.2, 8) mass:0.0 position:GLKVector3Make(0, 0, 0)];
+
+...
+
+- (void)createPhysicsCube:(GLKVector3)size mass:(float)mass position:(GLKVector3)position {
+    UIImage *diffuseImage = [UIImage imageNamed:@"texture.jpg"];
+    GLKTextureInfo *diffuseMap = [GLKTextureLoader textureWithCGImage:diffuseImage.CGImage options:nil error:nil];
+
+    Cube *cube = [[Cube alloc] initWithGLContext:self.glContext diffuseMap:diffuseMap normalMap:diffuseMap];
+    cube.modelMatrix = GLKMatrix4Multiply(GLKMatrix4MakeTranslation(position.x, position.y, position.z), GLKMatrix4MakeScale(size.x, size.y, size.z));
+    
+    RigidBody *rigidBody = [[RigidBody alloc] initAsBox:size];
+    rigidBody.mass = mass;
+    GameObject *gameObject = [[GameObject alloc] initWithGeometry:cube rigidBody:rigidBody];
+    
+    [self.physicsEngine addRigidBody:rigidBody];
+    [self.objects addObject:gameObject];
+}
+
+...
+
+#pragma mark - Touch Event
+- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+     [self createPhysicsCube: GLKVector3Make(0.5, 0.5, 0.5) mass:1.0 position:GLKVector3Make(0, 4, 0)];
+}
+```
+当然不要忘了在`update`中调用`PhysicsEngine`的`update`，这样物理引擎才能运转起来。
+```objc
+- (void)update {
+    [super update];
+    [self.physicsEngine update: self.timeSinceLastUpdate];
+    ...
+}
+```
+
+### 总结
+本人对Bullet的了解目前还是比较浅显的，所以本文只是介绍了Bullet物理引擎的冰山一角，想要了解更多可以去查阅[官方文档](https://github.com/bulletphysics/bullet3/blob/master/docs/Bullet_User_Manual.pdf){:target="_blank"}。多去使用一下其他游戏引擎里的物理引擎也是加深你对物理引擎概念了解的好方法。
