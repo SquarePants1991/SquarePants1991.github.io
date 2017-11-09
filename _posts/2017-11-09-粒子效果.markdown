@@ -1,0 +1,179 @@
+---
+layout: post
+title: 粒子效果
+date: 2017-11-09 11:03:51 +0800
+categories: 学习OpenGLES系列文章
+---
+### [获取示例代码](https://github.com/SquarePants1991/OpenGLESLearn){:target="_blank"}，本文代码在分支chapter30中。
+***
+
+### 前言
+本文将为大家介绍如何使用Billboards构建一个简单的粒子系统。粒子系统可在做到一些单纯的几何体无法做到的特效，它有很多变种和配置项，譬如制作下雪场景，技能特效，灰尘飞扬的效果等等。本文的例子中只是实现了一个简单的受重力影响的粒子效果，下面是效果图。
+![](http://upload-images.jianshu.io/upload_images/2949750-75328c9c70ef3a5f.gif?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+
+### 粒子的基本属性
+本文中每个粒子就是一个billboard，我创建了新的类`Particle`来表示粒子，它主要负责粒子的渲染和行为更新。一个完善的粒子系统有很多配置项来控制粒子的属性，这里我列举了粒子的几个基本属性。这里粒子是直接继承Billboard，这样我就可以用最少的三角形来表示一个粒子了，无论你从哪个角度看这个粒子，它始终都面朝摄像机。
+```objc
+@interface Particle: Billboard
+@property (assign, nonatomic) float life;
+@property (assign, nonatomic) GLKVector3 position;
+@property (assign, nonatomic) GLKVector3 speed;
+@property (assign, nonatomic) float size;
+@property (assign, nonatomic) GLKVector3 color;
+@end
+```
+`life`表示粒子的生命，粒子将发射时，被赋予生命，单位是秒。每次update，生命减少，生命小于等于0，则粒子死亡（无效）。`position`表示粒子的位置，这里的位置属性将被直接赋值给billboard的`billboardCenterPosition`。`speed`是粒子的x,y,z三个方向的速度，在update中使用它更新粒子的位置。`size`表示粒子的大小，直接赋值给`billboardSize`。`color`表示粒子的颜色，粒子渲染时一般会使用一张白色的半透明图，在Shader中将像素和粒子的颜色相乘。这些属性的使用会在后面详细介绍。
+
+### 生成粒子
+粒子系统的最基本的功能是发射粒子，回收粒子。`ParticleSystem`是表示粒子系统的类，初始化时生成指定数目的粒子。具体要生成多少粒子通过`ParticleSystemConfig`中的`maxParticles`指定。
+```objc
+- (instancetype)initWithGLContext:(GLContext *)context config:(ParticleSystemConfig)config particleTexture:(GLKTextureInfo *)particleTexture
+{
+    self = [super initWithGLContext:context];
+    if (self) {
+        self.config = config;
+        self.particleTexture = particleTexture;
+        self.activeParticles = [NSMutableArray new];
+        self.inactiveParticles = [NSMutableArray new];
+        [self fillParticles];
+    }
+    return self;
+}
+
+- (void)fillParticles {
+    for (int i = 0; i < self.config.maxParticles; ++i) {
+        [self newParticle];
+    }
+}
+
+- (void)newParticle {
+    Particle *particle = [[Particle alloc] initWithGLContext:self.context texture:self.particleTexture];
+    [self resetParticle:particle];
+    [self.inactiveParticles addObject:particle];
+}
+```
+
+
+### 发射回收粒子
+粒子系统通过`activeParticles`和`inactiveParticles`两个数组复用粒子对象，初始化时，将粒子全部放入非激活态粒子数组`inactiveParticles`中，粒子系统请求新的粒子时，将从`inactiveParticles`中选取。`pickParticle`是选取粒子的方法。
+```objc
+- (Particle *)pickParticle {
+    if (self.inactiveParticles.count > 0) {
+        Particle *particle = self.inactiveParticles[0];
+        [self.inactiveParticles removeObjectAtIndex:0];
+        [self resetParticle:particle];
+        return particle;
+    }
+    return nil;
+}
+```
+在每次update中，先检测是否有粒子的生命已经结束，如果结束，从`activeParticles`移除放到`inactiveParticles`中。`recycleInactiveParticle`是检测并回收已死亡粒子的方法。
+```objc
+- (void)recycleInactiveParticle {
+    for (int index = 0; index < self.activeParticles.count; ++index) {
+        Particle *particle = self.activeParticles[index];
+        if (particle.life <= 0) {
+            [self.inactiveParticles addObject:particle];
+            [self.activeParticles removeObjectAtIndex:index];
+            index--;
+        }
+    }
+}
+
+- (void)update:(NSTimeInterval)timeSinceLastUpdate {
+    [self recycleInactiveParticle];
+    int birthParicleCount = self.config.birthRate * timeSinceLastUpdate * self.config.maxParticles;
+    for (int i = 0; i < birthParicleCount; ++i) {
+        Particle *particle = [self pickParticle];
+        if (particle) {
+            [self.activeParticles addObject:particle];
+        }
+    }
+    for (Particle *particle in self.activeParticles) {
+        [particle update:timeSinceLastUpdate];
+    }
+}
+```
+接着，通过`config`中的出生率`birthRate`控制每次update发射的粒子数，从非激活态的粒子数组中选取这些粒子并重新初始化粒子的属性。最后更新所有被激活的粒子。
+
+### 粒子属性赋值
+在粒子被发射前，都要重新对粒子的属性赋值，粒子属性的具体赋值由`ParticleSystemConfig`中的配置项来决定。config中指定了粒子属性的随机范围，从`startXXX`到`endXXX`。`emissionBoxTransform`和`emissionBoxExtends`表示了Box发射区域的变换和尺寸，粒子会在指定的Box区域随机生成。如果你想在球形区域或者其他区域发射，也可以替换成自己的算法。
+```objc
+- (void)resetParticle:(Particle *)particle {
+    particle.life = [self randFloat:config.startLife end:config.endLife];
+    GLKVector4 newPos = GLKMatrix4MultiplyVector4(config.emissionBoxTransform, GLKVector4Make(0, 0, 0, 1));
+    particle.position = [self randInBox:config.emissionBoxExtends center: GLKVector3Make(newPos.x, newPos.y, newPos.z)];
+    particle.speed = [self randVector3:config.startSpeed end:config.endSpeed];
+    particle.size = [self randFloat:config.startSize end:config.endSize];
+    particle.color = [self randVector3:config.startColor end:config.endColor];
+}
+```
+
+### 物理模型
+物理模型决定的粒子的运动方式，下面是本文粒子的update方法。
+```objc
+- (void)update:(NSTimeInterval)timeSinceLastUpdate {
+    self.life -= timeSinceLastUpdate;
+    float lifePercent = self.life / self.originLife;
+    self.billboardSize = GLKVector2Make(self.size * lifePercent, self.size * lifePercent);
+    self.billboardCenterPosition = self.position;
+    
+    self.speed = GLKVector3Make(self.speed.x, self.speed.y + timeSinceLastUpdate * -9.8, self.speed.z);
+    self.position = GLKVector3Add(GLKVector3MultiplyScalar(self.speed, timeSinceLastUpdate), self.position);
+}
+```
+这里主要使用了重力模型进行运动控制，`speed`在每次update中根据重力改变自身的值，然后通过`speed`计算新的位置。你也可以使用其他模型来控制粒子行为，比如引力模型，假设中心点是太阳，粒子从一个球面上发射，受引力影响运动。
+> 代码中的`lifePercent`主要用来控制粒子的大小随生命周期改变
+
+### Shader和Blend
+粒子的Shader很简单，把贴图的颜色和粒子颜色相乘即可。
+```c
+void main(void) {
+    vec4 diffuseColor = texture2D(diffuseMap, fragUV);
+    gl_FragColor = diffuseColor * vec4(particleColor, 1.0);
+}
+```
+因为粒子是透明的，所以还要开启Blend模式。同时关闭深度写入，避免有些像素被discard掉，而无法进行混合，这个我在[透明和混合](http://www.jianshu.com/p/9c0651b3d19c){:target="_blank"}中有提到。
+```objc
+- (void)draw:(GLContext *)glContext {
+    glDepthMask(GL_FALSE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_DST_ALPHA);
+    for (Particle *particle in self.activeParticles) {
+        [particle draw:glContext];
+    }
+    glDepthMask(GL_TRUE);
+}
+```
+
+### 创建粒子
+最后在`ViewController`中创建粒子。
+```objc
+- (void)createParticles {
+    NSString *vertexShaderPath = [[NSBundle mainBundle] pathForResource:@"vtx_billboard" ofType:@".glsl"];
+    NSString *fragmentShaderPath = [[NSBundle mainBundle] pathForResource:@"frag_particle" ofType:@".glsl"];
+    GLContext *particleContext = [GLContext contextWithVertexShaderPath:vertexShaderPath fragmentShaderPath:fragmentShaderPath];
+    
+    ParticleSystemConfig config;
+    config.birthRate = 0.3;
+    config.emissionBoxExtends = GLKVector3Make(0.6,0.6,0.6);
+    config.emissionBoxTransform = GLKMatrix4MakeTranslation(0, -4, 0);
+    config.startLife = 1;
+    config.endLife = 2;
+    config.startSpeed = GLKVector3Make(-1.6, 12.5, -1.6);
+    config.endSpeed = GLKVector3Make(1.6, 12.5, 1.6);
+    config.startSize = 1.9;
+    config.endSize = 2.6;
+    config.startColor = GLKVector3Make(0, 0, 0);
+    config.endColor = GLKVector3Make(0.6, 0.5, 0.6);
+    config.maxParticles = 600;
+    
+    GLKTextureInfo *qrcode = [GLKTextureLoader textureWithCGImage:[UIImage imageNamed:@"particle.png"].CGImage options:nil error:nil];
+    
+    ParticleSystem *particleSystem = [[ParticleSystem alloc] initWithGLContext:particleContext config:config particleTexture:qrcode];
+    [self.objects addObject:particleSystem];
+}
+```
+
+### 总结
+本文主要介绍了一个基本的粒子系统是怎样构建起来的。当然投入产品使用的粒子系统会更加复杂，具体可以参考unity3d的粒子系统。不过只要理解了粒子系统的基本概念，再去看复杂的粒子系统就会容易理解的多。
