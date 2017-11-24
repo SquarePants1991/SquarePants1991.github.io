@@ -1,0 +1,103 @@
+---
+layout: post
+title: 序篇
+date: 2017-11-24 16:35:03 +0800
+categories: 学习SceneKit系列文章
+---
+### [获取示例代码](https://github.com/SquarePants1991/LearnSceneKit){:target="_blank"}，本文代码在分支chapter1中。
+***
+
+### 什么是SceneKit
+按照苹果官方说法，就是对Metal和OpenGL的高层封装，提供更加方便的操作3D资源的方法。我们也可以称之为游戏引擎，它具备一个常规游戏引擎需要拥有的功能，譬如3D模型渲染，光照模型，物理引擎，粒子系统，骨骼动画支持等等。不过目前来看，最吸引人的莫过于可以用它和ARKit快速制作一些有意思的小玩意儿。
+
+### 学习SceneKit有什么好处
+如果你对OpenGL，Metal或者Direct3D一无所知，恰好你是一名iOS开发者，那么学习SceneKit是你进入3D编程世界的一个绝佳入口。你问我为什么不去学Unity3D？的确Unity3D拥有更加强大的功能和工具，而且现在也有支持ARKit的插件....emmmmmm....一定要说的话，我也就只有下面这些理由让你学SceneKit而不是Unity3D了。
+1. SceneKit比较轻量化，如果你想学习更加底层的知识，从SceneKit入手会比较方便。
+1. SceneKit是用原生代码写的，没有自动生成的代码，比较好掌控，这也有利于你看清背后的逻辑。
+
+不过如果此时的你只是想快速的做一个游戏的话，还是尽快关了这个页面去找Unity3D的教程吧。
+
+### 创建一个SceneKit项目
+你可以选择直接创建一个Game项目，也可以创建一个普通项目。我选择了创建一个普通项目。
+![image.png](http://upload-images.jianshu.io/upload_images/2949750-be240db2d1277323.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+然后修改Storyboard中ViewController的View的类型为`SCNView`。
+![image.png](http://upload-images.jianshu.io/upload_images/2949750-5e0cbc73d37e050a.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+接下来，我们将在`ViewController.swift`中完成后续的工作。
+
+### 灯光，摄像，演员就位
+在3D虚拟世界中，我们同样需要灯光和摄像来完成场景的展示，灯光用来让3D物体可见，没有光，一切都是黑的。摄像机决定着我们能够在屏幕上看到什么。最后，在3D场景中放入各种3D物体，开始表演！！！
+```swift
+override func viewDidLoad() {
+    super.viewDidLoad()
+    // Create & Config Scene
+    scene = SCNScene()
+    scene.background.contents = UIColor.black
+    createCamera()
+    createLight()
+    createGeometry()
+    // Config SCNView
+    if let scnView = self.view as? SCNView {
+        scnView.scene = scene
+        scnView.allowsCameraControl = true
+        scnView.showsStatistics = true
+    }
+}
+```
+上面的代码，完整的实现了灯光，摄像和演员（3D物体）的准备。`SCNScene`是一个舞台，舞台的背景被我设置成了黑色` UIColor.black`。接着我们创建摄像机`createCamera()`，创建灯光`createLight()`，创建3D物体`createGeometry()`。最后这个舞台被赋给用于渲染3D场景的View `scnView`。后面的代码对`scnView`进行了配置。`allowsCameraControl`赋予了可以使用手势改变视角的功能。`showsStatistics`会显示一些指标参数，比如fps，顶点数等等。
+
+### 创建摄像机
+创建摄像机的代码很简单。SceneKit里每个对象都会挂载在SCNNode下，node可以包含其他node，这些对象会形成一个树状的结构，和UIKit相似。下面的代码就是创建一个挂载了`SCNCamera`的Node然后加到舞台的rootNode里。这里设置了Camera的位置`SCNVector3.init(0, 0, 2)`。`SCNVector3`是SceneKit中对3维向量的表示。SceneKit中屏幕从左到右为x正轴方向，从下到上为y正轴方向，从里到外为z轴正轴方向，屏幕中心为`（0，0，0）`点。所以`（0，0，2）`就是从屏幕中心向外移动2个单位的位置。更多关于z轴的信息将会在后面介绍。
+```swift
+func createCamera() {
+    let node = SCNNode()
+    node.camera = SCNCamera()
+    node.position = SCNVector3.init(0, 0, 2)
+    scene.rootNode.addChildNode(node)
+}
+```
+
+### 创建灯光
+在3D世界，有很多计算光照的数学模型，这些数学模型拥有不同的复杂度和效果。每种模型都会支持不同种类的光，比如平行光，泛光，聚光灯等等。这里我使用了omni（泛光），你可以把它想象成你家的灯泡，会向四周提供亮光。下面的代码一共创建了3个光源。从三个不同的地方提供不同颜色的光。同样，通过Node的position修改光源的位置，不过不是每一种光源都会受position影响，这个话题我们后续再说。
+```swift
+func createLight() {
+    // red light
+    let redLightNode = SCNNode()
+    redLightNode.light = SCNLight()
+    redLightNode.light?.type = .omni
+    redLightNode.light?.color = UIColor.red
+    redLightNode.position = SCNVector3.init(6, 6, 0)
+    scene.rootNode.addChildNode(redLightNode)
+    // green light
+    let greenLightNode = SCNNode()
+    greenLightNode.light = SCNLight()
+    greenLightNode.light?.type = .omni
+    greenLightNode.light?.color = UIColor.green
+    greenLightNode.position = SCNVector3.init(-6, 6, 0)
+    scene.rootNode.addChildNode(greenLightNode)
+    // blue light
+    let blueLightNode = SCNNode()
+    blueLightNode.light = SCNLight()
+    blueLightNode.light?.type = .omni
+    blueLightNode.light?.color = UIColor.blue
+    blueLightNode.position = SCNVector3.init(0, -6, 0)
+    scene.rootNode.addChildNode(blueLightNode)
+}
+```
+
+### 加入3D物体
+例子中我加入了一个球体。Node的创建和之前类似。唯一不同的就是这里设置了一个球形的几何体。球的半径为0.3。更多关于几何体的信息将在后续文章中介绍。
+```swift
+func createGeometry() {
+    let node = SCNNode()
+    node.geometry = SCNSphere.init(radius: 0.3)
+    node.position = SCNVector3.init(0, 0, 0)
+    scene.rootNode.addChildNode(node)
+}
+```
+
+### Build & Run
+万事具备，运行，就可以看到一个被3种颜色的光照耀的球体了。因为我们开启了摄像机控制，还可以通过手势旋转观察球体。
+![](http://upload-images.jianshu.io/upload_images/2949750-ef970265e74b1658.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+
+
+
