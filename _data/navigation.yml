@@ -2,11 +2,11 @@
 main:
   - title: "首页"
     url: /
+  - title: "学习SceneKit系列文章"
+    url: /categories/学习SceneKit系列文章.html
   - title: "学习OpenGLES系列文章"
     url: /categories/学习OpenGLES系列文章.html
   - title: "学习WebGL"
     url: /categories/学习WebGL.html
   - title: "iOS开发"
     url: /categories/iOS开发.html
-  - title: "资源"
-    url: /categories/资源.html
