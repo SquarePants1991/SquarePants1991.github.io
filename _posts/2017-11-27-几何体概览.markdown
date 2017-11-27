@@ -1,0 +1,66 @@
+---
+layout: post
+title: 几何体概览
+date: 2017-11-27 18:01:45 +0800
+categories: 学习SceneKit系列文章
+---
+### [获取示例代码](https://github.com/SquarePants1991/LearnSceneKit){:target="_blank"}，本文代码在分支chapter2中。
+***
+
+### 什么是几何体
+在序篇中，我们已经初步了解到了球形几何体，我们通过` SCNSphere.init(radius: 0.3)`可以方便的创建一个半径为0.3的球形几何体。`SCNSphere`是苹果为我们内置的几何体，当然苹果还为我们内置了很多其他几何体，包括`SCNPlane, SCNBox, SCNSphere, SCNPyramid, SCNCone, SCNCylinder, SCNCapsule, SCNTube, SCNTorus`，这些在例子中都有展示。在计算机的3D世界中，通常使用顶点数组去表示几何体，比如一个三角形可以表示为`（-0.5，0.5， 0），（0.5，0.5， 0），（0，-0.5， 0） `，`（x，y，z）`是一个顶点的坐标。一个球体可以通过很多个三角形拼接而成，所以对于一个球体而言，表示它的数据就是这些三角形顶点的集合。当然以上只是一个简化的说明，如果你想知道底层显示几何体的方法和原理，可以去看我的[OpenGL ES系列文章](http://www.gltech.win/categories/%E5%AD%A6%E4%B9%A0OpenGLES%E7%B3%BB%E5%88%97%E6%96%87%E7%AB%A0.html){:target="_blank"}。
+
+### 几个内置几何体的展示
+下面为大家展示几个苹果内置的几何体。
+
+#### SCNCone（圆锥体）
+圆锥体接受三个参数上面的半径，下面的半径和高度。
+```swift
+SCNCone.init(topRadius: 0.1, bottomRadius: 0.5, height: 1)
+```
+![](http://upload-images.jianshu.io/upload_images/2949750-01282e3f1055a9bf.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+
+计算机中的圆都是采用多边形接近的方式制作的，圆锥也不例外，圆锥体提供了`radialSegmentCount`属性控制组成圆锥的面数，默认是一圈48个面。如果把它调整为3，就会变成这样。
+![](http://upload-images.jianshu.io/upload_images/2949750-7032a7a57c454747.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+圆锥还提供了一个`heightSegmentCount`属性控制从上到下切成几份。这两个属性值越大，产生的顶点就越多，模型就越精致，但绘制的性能消耗也就越大。
+
+#### SCNCapsule（胶囊）
+胶囊其实就和我们平时吃的感冒胶囊长得一样，两头是半球形，
+中间是圆柱，生成它只需要提供半球半径和高度两个参数。
+```swift
+SCNCapsule.init(capRadius: 0.1, height: 1)
+```
+![](http://upload-images.jianshu.io/upload_images/2949750-ca3caf78a34ee33c.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+它也有控制生成模型精度的属性`radialSegmentCount`，`capSegmentCount`，`heightSegmentCount`。
+
+#### SCNTube（管子）
+管子是可以控制管壁厚度的管状几何体。需要提供内径，外径和高度三个参数。
+```swift
+SCNTube.init(innerRadius: 0.3, outerRadius: 0.5, height: 0.4)
+```
+![](http://upload-images.jianshu.io/upload_images/2949750-42d3c5c2aeced34b.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+
+#### SCNTorus（圆环）
+圆环可以看作是圈成环的圆柱体，需要提供圆环的半径`ringRadius`和圆柱体的半径`pipeRadius`。
+```swift
+SCNTorus.init(ringRadius: 0.5, pipeRadius: 0.1)
+```
+![](http://upload-images.jianshu.io/upload_images/2949750-65ac60d9679c19f4.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+
+### 3D文本
+使用SceneKit可以方便的将文字转换成3D几何体，`SCNText`还支持设置斜切角，让文字模型的转角不那么生硬。使用起来也很方便。另外，`SCNText`还支持一个`flatness`属性，这个值越小，生成出来的文字线条越精细，默认为1，当然越精细性能负担也就越重。
+```swift
+let attrs: [NSAttributedStringKey: Any] = [ .font: UIFont.systemFont(ofSize: 1) ]
+let textGeometry = SCNText.init(string: NSAttributedString.init(string: "handy\nTool", attributes: attrs), extrusionDepth: 0.4)
+textGeometry.chamferRadius = 0.1
+```
+![](http://upload-images.jianshu.io/upload_images/2949750-242a8df8d7a8dae2.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+> 生成的文字默认不在中间，我根据文本模型的大小调整它的位置，将它放到中间的位置。具体代码在addGeometry方法中。
+
+### SCNShape
+SCNShape可以将Path转换成3D模型，其实方式和3D文本一样，或者说3D文本就是利用这个原理生成的。因为文字可以先转换成Path，然后再用SCNShape转换成3D模型，读者可以自己试一试用SCNShape生成一些模型。
+
+### 总结
+系统提供的几何体可以说是简单易用，掌握它们也很轻松。不过对于几何体的学习不会止步于此，后面的文章中将会逐步为大家介绍如何自定义几何体，控制几何体的外观以及LOD技术。
+
+
