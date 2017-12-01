@@ -1,0 +1,123 @@
+---
+layout: post
+title: 自定义几何体
+date: 2017-12-01 17:02:54 +0800
+categories: 学习SceneKit系列文章
+---
+### [获取示例代码](https://github.com/SquarePants1991/LearnSceneKit){:target="_blank"}，本文代码在分支chapter3中。
+***
+
+### 前言
+上一篇文章中，介绍了系统提供的几种几何体，本文将介绍如何自定义几何体。3D几何体和2D图形类似，需要提供组成几何体的点坐标，不同的是，还要提供绘制的基本单元。在绘制2D图形的时候，我们将点按照顺序连接起来，再按照一定的规则填充颜色即可，但是在绘制3D几何体的时候，我们得告诉系统如何使用提供的顶点。一般来说绘制3D几何体都是以三角形为基本单位，比如绘制一个四边形，就需要绘制2个三角形。下面是四边形绘制的效果图。
+![](http://upload-images.jianshu.io/upload_images/2949750-c95c30ed01072464.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+
+
+### 三角形列表绘制方式
+下面我将为大家介绍3D绘制中的一种基本方式，绘制三角形列表。顾名思义，我们提供一个三角形列表给系统，系统将这些三角形绘制出来。
+![](http://upload-images.jianshu.io/upload_images/2949750-846c1635f509ec18.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+我们看上面这个四边形，它由两个三角形组成，ABC和ACD。它们就组成了三角形列表。用代码表示就是。
+```swift
+let vertices: [SCNVector3] = [
+            // 第一个三角形
+            SCNVector3(-0.5 * size.x, 0.5 * size.y, 0),
+            SCNVector3(-0.5 * size.x, -0.5 * size.y, 0),
+            SCNVector3(0.5 * size.x, -0.5 * size.y, 0),
+            // 第二个三角形
+            SCNVector3(-0.5 * size.x, 0.5 * size.y, 0),
+            SCNVector3(0.5 * size.x, -0.5 * size.y, 0),
+            SCNVector3(0.5 * size.x, 0.5 * size.y, 0)
+        ]
+```
+`SCNVector3`是SceneKit中用来表示3个Float的数据结构。其中`size`是四边形的尺寸，当size为1x1时，刚好是上图的四边形。这里有一点要注意，三角形的顶点要按照逆时针的顺序排列，因为默认情况下，顶点排序为逆时针的面为正面，在默认情况下，只有正面会被渲染，这样可以减少性能消耗。也就是说如果你提供的顶点顺序为顺时针，你将看不到图形。
+
+### SceneKit自定义几何体实现要点
+想要实现自定义几何体，主要使用`public convenience init(sources: [SCNGeometrySource], elements: [SCNGeometryElement]?)`方法，例子中我创建了Plane类继承SCNGeometry。下面是实现自定义绘制四边形的几乎全部代码。
+```swift
+convenience init(size: CGPoint) {
+        let vertices: [SCNVector3] = [
+            // 第一个三角形
+            SCNVector3(-0.5 * size.x, 0.5 * size.y, 0),
+            SCNVector3(-0.5 * size.x, -0.5 * size.y, 0),
+            SCNVector3(0.5 * size.x, -0.5 * size.y, 0),
+            // 第二个三角形
+            SCNVector3(-0.5 * size.x, 0.5 * size.y, 0),
+            SCNVector3(0.5 * size.x, -0.5 * size.y, 0),
+            SCNVector3(0.5 * size.x, 0.5 * size.y, 0)
+        ]
+        let vertexSource = SCNGeometrySource.init(vertices: vertices)
+        
+        let uvs: [CGPoint] = [
+            CGPoint(x: 0, y: 1),
+            CGPoint(x: 0, y: 0),
+            CGPoint(x: 1, y: 0),
+            CGPoint(x: 0, y: 1),
+            CGPoint(x: 1, y: 0),
+            CGPoint(x: 1, y: 1),
+        ]
+        let uvSource = SCNGeometrySource.init(textureCoordinates: uvs)
+        
+        let normals: [SCNVector3] = [
+            // 第一个三角形
+            SCNVector3(0, 0, 1),
+            SCNVector3(0, 0, 1),
+            SCNVector3(0, 0, 1),
+            // 第二个三角形
+            SCNVector3(0, 0, 1),
+            SCNVector3(0, 0, 1),
+            SCNVector3(0, 0, 1),
+        ]
+        let normalSource = SCNGeometrySource.init(normals: normals)
+        
+        let indices: [UInt8] = [0, 1, 2, 3, 4, 5]
+        let element = SCNGeometryElement.init(indices: indices, primitiveType: .triangles)
+        
+        self.init(sources: [vertexSource, uvSource, normalSource], elements: [element])
+    }
+```
+创建一个自定义几何体主要需要`[SCNGeometrySource]`和`[SCNGeometryElement]`。`SCNGeometrySource`就是顶点的数据，你可能已经注意到不仅仅有位置数据，还有uv和normal数据，这两个数据对于贴图和光照模型计算有很大的作用，我会在后面的文章中进行介绍，本文我们主要关注位置数据`vertices`。`SCNGeometryElement`就是顶点的组织方式，`let element = SCNGeometryElement.init(indices: indices, primitiveType: .triangles)`的意思就是我们从顶点里面取第0到5个组成三角形列表，让系统渲染。`primitiveType: .triangles`代表的就是三角形列表绘制方式。最后要注意的是同一种类型的`SCNGeometrySource`系统只会使用第一个，比如你用`SCNGeometrySource.init(vertices: vertices)`初始化了2个顶点数据并且传递给系统，系统只会使用第一个，如果你想显示多个顶点数据，需要创建多个Geometry。
+
+### 三角带绘制方式
+`primitiveType: .triangles`除了使用`triangles`外还可以使用`triangleStrip`。我在`PlaneUseIndice`中使用了`triangleStrip`并且使用indice优化了顶点数据源。
+```swift
+convenience init(size: CGPoint) {
+    let vertices: [SCNVector3] = [
+        SCNVector3(-0.5 * size.x, 0.5 * size.y, 0),
+        SCNVector3(-0.5 * size.x, -0.5 * size.y, 0),
+        SCNVector3(0.5 * size.x, -0.5 * size.y, 0),
+        SCNVector3(0.5 * size.x, 0.5 * size.y, 0)
+    ]
+    let vertexSource = SCNGeometrySource.init(vertices: vertices)
+    
+    let uvs: [CGPoint] = [
+        CGPoint(x: 0, y: 1),
+        CGPoint(x: 0, y: 0),
+        CGPoint(x: 1, y: 0),
+        CGPoint(x: 1, y: 1),
+        ]
+    let uvSource = SCNGeometrySource.init(textureCoordinates:
+uvs)
+    
+    let normals: [SCNVector3] = [
+        SCNVector3(0, 0, 1),
+        SCNVector3(0, 0, 1),
+        SCNVector3(0, 0, 1),
+        SCNVector3(0, 0, 1),
+        ]
+    let normalSource = SCNGeometrySource.init(normals: normals)
+    
+    let indices: [UInt8] = [1, 2, 0, 3]
+    let element = SCNGeometryElement.init(indices: indices,
+primitiveType: .triangleStrip)
+    
+    self.init(sources: [vertexSource, uvSource, normalSource],
+elements: [element])
+}
+```
+在三角带模式下，第n（n > 1且从1开始）个三角形将复用前一个三角形的最后两个点，三角形的顶点顺序则是逆时针，顺时针，逆时针，顺时针交替。例子中我使用的是BCAD的顶点顺序，在三角带模式下，解析出来就是BCA和CAD两个三角形。BCA是逆时针，CAD是顺时针。
+![](http://upload-images.jianshu.io/upload_images/2949750-3152e830facf2d9f.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+
+### 其他模式
+除了三角形列表和三角带，还有point和line两种模式，point在每个顶点的位置上绘制点，不过我尝试下来，`SCNGeometryElement`的pointSize属性设置无效，所以绘制出来的点很小，基本无法使用。line模式会将顶点2个2个取出绘制线段，比如[A,B,C,D]绘制出来的就是AB和CD两条线。不幸的是线的粗细无法直接控制，也是比较鸡肋。SceneKit底层应该用的OpenGL或者说至少要兼容OpenGL，所以有这些限制也是可以理解的，不过pointSize倒是可以在GLSL中方便的修改，这些会在后面的文章中详细介绍。
+
+### 最后
+例子中我还写了一个正方体的例子，有兴趣的可以看下，在Cube类中。绘制正方体其实就是绘制6个不同轴上的四边形。读者可以自己参照例子理解其中的规律。
