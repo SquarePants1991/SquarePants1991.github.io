@@ -1,0 +1,99 @@
+---
+layout: post
+title: 贴图
+date: 2017-12-13 15:18:41 +0800
+categories: 学习SceneKit系列文章
+---
+### [获取示例代码](https://github.com/SquarePants1991/LearnSceneKit){:target="_blank"}，本文代码在分支chapter5中。
+***
+
+### 前言
+上一篇我们介绍了材质的基本概念，这一篇我们将重点介绍材质中的一个概念 - 贴图。本文将重点说明diffuse贴图的运作方式。在例子中，为之前自定义的Cube几何体每一个面贴上不同的图片。下面是效果图。
+![](http://upload-images.jianshu.io/upload_images/2949750-895fe99eae93beb5.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+
+### UV
+为了能够正确的将图片贴合到几何体的面上，几何体的顶点数据中必须包含这种映射关系。在前面我们有提到顶点数据中有包含UV数据。所谓UV，就是图片映射到几何面的坐标。通常，我们将图片的尺寸规范到1x1的范围内，如下图所示。U是水平轴，V是竖直轴。
+![](http://upload-images.jianshu.io/upload_images/2949750-e1a80af7f155cb48.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+如果一个顶点对应的UV是`（0，0）`，那么就相当于图片的左上角会被贴到那个顶点的位置上。下面是这个面的顶点数据。
+```swift
+-0.5,   0.5,  0.5,   0,  0,  1, 0, 0,
+-0.5,  -0.5,  0.5,  0,  0,  1, 0, 1,
+0.5,   -0.5,  0.5,  0,  0,  1, 1, 1,
+0.5,    -0.5, 0.5,   0,  0,  1, 1, 1,
+0.5,    0.5,  0.5,    0,  0,  1, 1, 0,
+-0.5,   0.5,  0.5,  0,  0,  1, 0, 0,
+```
+每一行，前三个是顶点位置，中间三个是法线，也就是和这个面垂直的向量，后面两个就是UV数据了。这个面和xy面平行，在z=0.5处。UV为(0，0)的顶点位置是-0.5，0.5，0.5，也就是左上角的顶点，其他的顶点读者可以自行查看对应关系。通过这些UV映射，数字1的图片则刚好贴在这个面上。
+
+### 多材质
+我们要为自定义的Cube几何体每个面贴上不同的贴图，就得对之前的代码做修改。之前的代码中只使用了一个SCNGeometryElement，所以只能使用一个材质。如果我们为每一个面创建一个SCNGeometryElement，那么就可以使用6种不同的材质了。
+```swift
+var elements: [SCNGeometryElement] = []
+for i in 0..<6 {
+    var indices: [UInt32] = []
+    (0..<6).forEach { indices.append(UInt32(i * 6) + UInt32($0)) }
+    let element = SCNGeometryElement.init(indices: indices, primitiveType: .triangles)
+    elements.append(element)
+}
+self.init(sources: [verticeSource, uvSource, normalSource], elements: elements)
+```
+接着我们在ViewController中给Cube赋予6种材质。
+```swift
+var materials: [SCNMaterial] = []
+var colors: [UIColor] = [
+    UIColor.init(red: 0xff / 255.0, green: 0xe5 / 255.0, blue: 0.0, alpha: 1.0),
+    UIColor.init(red: 0xe9 / 255.0, green: 0.0, blue: 0x3a / 255.0, alpha: 1.0),
+    UIColor.init(red: 0x07 / 255.0, green: 0x76 / 255.0, blue: 0xa0 / 255.0, alpha: 1.0),
+    UIColor.init(red: 0xf4 / 255.0, green: 0x43 / 255.0, blue: 0x36 / 255.0, alpha: 1.0),
+    UIColor.init(red: 0x68 / 255.0, green: 0x9f / 255.0, blue: 0x38 / 255.0, alpha: 1.0),
+    UIColor.init(red: 0xef / 255.0, green: 0x6c / 255.0, blue: 0.0, alpha: 1.0),
+]
+for i in 0..<6 {
+    let material = SCNMaterial()
+    material.lightingModel = .blinn
+    material.diffuse.contents = NumberImageGenerator.createImage(number: i + 1, foregroundColor: colors[(i + 1) % colors.count], backgroundColor: colors[i % colors.count], size: CGSize.init(width: 128, height: 128))
+    material.shininess = 1.0
+    materials.append(material)
+}
+geometry.materials = materials
+```
+我编写了辅助方法`NumberImageGenerator.createImage`来生成写有数字的图片。我生成的图片大小是128x128，推荐使用2的次方尺寸的图片作为贴图，比如64，128，256，512，1024等。
+
+### 贴图配置
+前面我们刚好将图片贴满一个面，如果我们对UV坐标做如下修改会怎么样呢？我将UV的值放大了2倍。
+```swift
+// Z轴0.5处的平面
+-0.5,   0.5,  0.5,   0,  0,  1, 0, 0,
+-0.5,  -0.5,  0.5,  0,  0,  1, 0, 2,
+0.5,   -0.5,  0.5,  0,  0,  1, 2, 2,
+0.5,    -0.5, 0.5,   0,  0,  1, 2, 2,
+0.5,    0.5,  0.5,    0,  0,  1, 2, 0,
+-0.5,   0.5,  0.5,  0,  0,  1, 0, 0,
+```
+如果不做任何其他处理的话，效果如下。
+![](http://upload-images.jianshu.io/upload_images/2949750-643dd424a6f668eb.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+如果我们希望UV超出1的部分以重复的形式进行贴图，需要进行一些设置。
+```swift
+material.diffuse.wrapS = .repeat
+material.diffuse.wrapT = .repeat
+```
+这样就可以得到下面的效果。
+![](http://upload-images.jianshu.io/upload_images/2949750-5482043e49931e8e.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+系统还提供了镜像模式。
+```swift
+material.diffuse.wrapS = .mirror
+material.diffuse.wrapT = .mirror
+```
+效果如下。
+![](http://upload-images.jianshu.io/upload_images/2949750-213b28f60b4cacb3.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+
+wrapS代表U轴上的重复模式，wrapT代表V轴上的重复模式。默认情况下取值都为`.clamp`，也就是多出的部分重复边缘的像素点。
+我们还可以通过下面的代码控制图片放大和缩小是使用的采样算法。默认是linear算法，效率高，效果略差。
+```swift
+material.diffuse.minificationFilter = .nearest
+material.diffuse.magnificationFilter = .nearest
+```
+
+### 总结
+本文主要介绍了如何使用diffuse贴图以及相关配置，对于法线贴图和specular贴图来说，也遵从相同的原理。读者可以自行构建出一些几何体，然后对其进行贴图来当作练习。
+
