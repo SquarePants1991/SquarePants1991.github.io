@@ -1,6 +1,6 @@
 ---
 layout: post
-title: 如何优雅的将CA旋转360度
+title: 如何优雅的将CALayer旋转360度
 date: 2018-01-10 13:30:25 +0800
 categories: iOS开发
 ---
