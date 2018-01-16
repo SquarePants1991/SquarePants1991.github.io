@@ -1,0 +1,185 @@
+---
+layout: post
+title: 如何优雅的将CALayer旋转360度
+date: 2018-01-10 13:30:25 +0800
+categories: iOS开发
+---
+
+### 前言
+不知你是否遇到过将CALayer旋转360度的需求，如果有的话，你也许会尝试使用transform做旋转动画，然后发现。。。CALayer根本就不动。本文将深入解释并解决这个问题。
+
+### transform.rotation
+`CABasicAnimation`支持`transform.rotation`这个keyPath，你可以将这个值从0改变到2pi进行动画。`transform.rotation`是绕z轴旋转。当然你也可以指定绕哪个轴旋转，比如x轴就是`transform.rotation.x`。这个可动画属性能够完美的实现旋转360度的需求。那么问题来了，既然它可以，为什么我这么写就不可以呢？我也是从0度的transform到360度的transform呀。
+```objc
+CATransform3D start = CATransform3DMakeRotation(0 * M_PI / 180.0, 0, 0, 1);
+CATransform3D end = CATransform3DMakeRotation(2 * M_PI / 180.0, 0, 0, 1);
+CABasicAnimation *animation = [CABasicAnimation animationWithKeyPath:@"transform"];
+animation.fromValue = [NSValue valueWithCATransform3D:start];
+animation.toValue = [NSValue valueWithCATransform3D:end];
+animation.duration = 3.3;
+```
+
+### 动画插值
+我们知道动画要想平滑，就得在我们给的from和to之间进行插值然后渲染这些插值情况下的帧。那么这些值是怎么插的呢？我们可以自定义一个Animatable的属性看看。下面是自定义Animatable的`rotateX`属性需要的代码。
+```objc
+@implementation HTCardLayer
+
+- (void)setRotateX:(CGFloat)rotateX {
+    _rotateX = rotateX;
+    CATransform3D transform = CATransform3DIdentity;
+    transform.m34 = 1.0 / -300.0;
+    self.transform = CATransform3DRotate(transform, rotateX, 1, 0, 0);
+}
+
+- (void)display {
+    CGFloat rotateX = [(HTCardLayer *)self.presentationLayer rotateX];
+    NSLog(@"%lf", rotateX);
+    CATransform3D transform = CATransform3DIdentity;
+    transform.m34 = 1.0 / -300.0;
+    self.transform = CATransform3DRotate(transform, rotateX, 1, 0, 0);
+}
+
++ (BOOL)needsDisplayForKey:(NSString *)key {
+    if ([key isEqualToString:@"rotateX"]) {
+        return YES;
+    }
+    return [super needsDisplayForKey:key];
+}
+@end
+```
+`needsDisplayForKey`告诉系统`rotateX`修改后需要刷新显示，`display`则负责刷新显示，因为被动画的属性值都在`presentationLayer`中，所以我们从`presentationLayer`中取`rotateX`的最新值。下面是动画过程中打印出来的`rotateX`的值。基本就是一个线性的变化过程，因为我没有设置任何时间函数。`rotateX`是一个CGFloat，那如果是CATransform3D呢？会怎么变化？
+
+```objc
+0.352071
+0.730180
+1.101104
+1.477982
+1.833467
+2.189324
+2.550581
+2.915682
+3.273214
+3.649389
+4.013420
+4.376663
+4.740999
+5.113640
+5.483836
+5.861515
+6.234217
+```
+
+### CATransform3D的插值
+我新增了一个Animatable的属性`customMatrix`来查看CATransform3D类型的属性是如何插值的。CATransform3D其实是一个4x4的矩阵。
+```objc
+- (void)display {
+    CGFloat rotateX = [(HTCardLayer *)self.presentationLayer rotateX];
+    CATransform3D customMatrix = [(HTCardLayer *)self.presentationLayer customMatrix];
+//    NSLog(@"%lf", rotateX);
+    NSLog(@"%lf, %lf, %lf, %lf", customMatrix.m11, customMatrix.m12, customMatrix.m13, customMatrix.m14);
+    NSLog(@"%lf, %lf, %lf, %lf", customMatrix.m21, customMatrix.m22, customMatrix.m23, customMatrix.m24);
+    NSLog(@"%lf, %lf, %lf, %lf", customMatrix.m31, customMatrix.m32, customMatrix.m33, customMatrix.m34);
+    NSLog(@"%lf, %lf, %lf, %lf", customMatrix.m41, customMatrix.m42, customMatrix.m43, customMatrix.m44);
+    NSLog(@"---------");
+    CATransform3D transform = CATransform3DIdentity;
+    transform.m34 = 1.0 / -300.0;
+    self.transform = CATransform3DRotate(transform, rotateX, 1, 0, 0);
+}
+
++ (BOOL)needsDisplayForKey:(NSString *)key {
+    if ([key isEqualToString:@"rotateX"]) {
+        return YES;
+    }
+    if ([key isEqualToString:@"customMatrix"]) {
+        return YES;
+    }
+    return [super needsDisplayForKey:key];
+}
+```
+下面是部分数据，我用的是绕z轴旋转的矩阵，所以只有`m11,m12,m21,m22`有数据，其他都是Identity矩阵的基本数值。可以看出`m11,m12,m21,m22`也是各自呈线性变化。
+```objc
+0.982547, -0.186012, 0.000000, 0.000000
+0.186012, 0.982547, 0.000000, 0.000000
+0.000000, 0.000000, 1.000000, 0.000000
+0.000000, 0.000000, 0.000000, 1.000000
+---------
+0.930553, -0.366158, 0.000000, 0.000000
+0.366158, 0.930553, 0.000000, 0.000000
+0.000000, 0.000000, 1.000000, 0.000000
+0.000000, 0.000000, 0.000000, 1.000000
+---------
+0.830170, -0.557510, 0.000000, 0.000000
+0.557510, 0.830170, 0.000000, 0.000000
+0.000000, 0.000000, 1.000000, 0.000000
+0.000000, 0.000000, 0.000000, 1.000000
+---------
+0.700345, -0.713804, 0.000000, 0.000000
+0.713804, 0.700345, 0.000000, 0.000000
+0.000000, 0.000000, 1.000000, 0.000000
+0.000000, 0.000000, 0.000000, 1.000000
+---------
+0.560556, -0.828117, 0.000000, 0.000000
+0.828117, 0.560556, 0.000000, 0.000000
+0.000000, 0.000000, 1.000000, 0.000000
+0.000000, 0.000000, 0.000000, 1.000000
+---------
+0.403126, -0.915145, 0.000000, 0.000000
+0.915145, 0.403126, 0.000000, 0.000000
+0.000000, 0.000000, 1.000000, 0.000000
+0.000000, 0.000000, 0.000000, 1.000000
+---------
+0.221203, -0.975228, 0.000000, 0.000000
+0.975228, 0.221203, 0.000000, 0.000000
+0.000000, 0.000000, 1.000000, 0.000000
+0.000000, 0.000000, 0.000000, 1.000000
+---------
+0.030679, -0.999529, 0.000000, 0.000000
+0.999529, 0.030679, 0.000000, 0.000000
+0.000000, 0.000000, 1.000000, 0.000000
+0.000000, 0.000000, 0.000000, 1.000000
+---------
+-0.158010, -0.987438, 0.000000, 0.000000
+0.987438, -0.158010, 0.000000, 0.000000
+0.000000, 0.000000, 1.000000, 0.000000
+0.000000, 0.000000, 0.000000, 1.000000
+---------
+-0.347984, -0.937500, 0.000000, 0.000000
+0.937500, -0.347984, 0.000000, 0.000000
+0.000000, 0.000000, 1.000000, 0.000000
+0.000000, 0.000000, 0.000000, 1.000000
+---------
+-0.517222, -0.855851, 0.000000, 0.000000
+0.855851, -0.517222, 0.000000, 0.000000
+0.000000, 0.000000, 1.000000, 0.000000
+0.000000, 0.000000, 0.000000, 1.000000
+---------
+-0.672144, -0.740421, 0.000000, 0.000000
+0.740421, -0.672144, 0.000000, 0.000000
+0.000000, 0.000000, 1.000000, 0.000000
+0.000000, 0.000000, 0.000000, 1.000000
+---------
+-0.812617, -0.582798, 0.000000, 0.000000
+0.582798, -0.812617, 0.000000, 0.000000
+0.000000, 0.000000, 1.000000, 0.000000
+0.000000, 0.000000, 0.000000, 1.000000
+---------
+-0.905049, -0.425307, 0.000000, 0.000000
+0.425307, -0.905049, 0.000000, 0.000000
+0.000000, 0.000000, 1.000000, 0.000000
+0.000000, 0.000000, 0.000000, 1.000000
+---------
+-0.969663, -0.244444, 0.000000, 0.000000
+0.244444, -0.969663, 0.000000, 0.000000
+0.000000, 0.000000, 1.000000, 0.000000
+0.000000, 0.000000, 0.000000, 1.000000
+---------
+-0.998409, -0.056390, 0.000000, 0.000000
+0.056390, -0.998409, 0.000000, 0.000000
+0.000000, 0.000000, 1.000000, 0.000000
+0.000000, 0.000000, 0.000000, 1.000000
+---------
+```
+这也就解释了为什么0到360度的动画直接不执行了，因为0和360度的矩阵一模一样，也就无法计算出任何插值。
+
+### 总结
+总而言之，如果你想360度旋转CALayer，要么使用`transform.rotation`，要么就自定义Animatable的属性。
