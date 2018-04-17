@@ -1,0 +1,57 @@
+---
+layout: post
+title: 记录一次内存泄漏发现过程
+date: 2018-04-03 11:24:10 +0800
+categories: iOS开发
+---
+
+# 前言
+本文主要记录在iOS开发中发现的一个系统级别内存泄露的过程。测试iOS系统11.2.1，设备iPhoneX。
+
+# 如何复现
+下面是复现泄漏的测试代码，`LeakObject`是一个没有任何多余代码的类，继承自`NSObject`。
+```objectivec
+LeakObject *leakObject = [LeakObject new];
+for(int i = 0; i < 10000 * 1000; ++i) {
+    id value = @"hello";
+    [leakObject validateValue:&value forKey:@"notexistkey" error:nil];
+}
+```
+当对一个不存在的key进行`validateValue`时，就会有少量内存泄漏。如果执行很多次，结果还是很可观的。上面的代码会让内存飙到160M。
+[截图]
+
+# 定位泄漏源
+这个泄漏使用Instruments的Leaks模版可以很快的发现，但是代码却不好定位。下面是Leaks报告的泄漏截图。
+【泄漏截图】
+可以看出，泄漏发生在`validateValue:forKey:error:`，再细看右边的调用栈，可以看到这块内存是由`malloc`分配的。所以很有可能是这个系统方法内部发生了泄漏。
+
+# 使用符号断点深入观察系统方法
+首先使用符号断点，让程序在`validateValue:forKey:error:`处停下。
+【符号断点】
+运行程序，命中断点后，我们就可以观察`validateValue:forKey:error:`的汇编代码了。
+【汇编代码截图】
+
+# 寻找Leak的内存来源
+在汇编代码中，我发现了一个malloc调用和一个free调用。
+```c
+0x1048272ef <+63>:  callq  0x10498b1da               ; symbol stub for: malloc
+...
+0x104827389 <+217>: callq  0x10498b066               ; symbol stub for: free
+```
+通过单步调试发现，malloc出来的内存主要用来存储key，并且把首字母变成大写，应该是为了方便构成`validate<Key>:error:`的selector name。不过如果对象上没有校验这个key的方法，那么代码会直接jump到free调用的下二行。这样这个内存块就永远不会被释放了。
+```c
+0x104827390 <+224>: movb   $0x1, %r14b
+```
+当我们给LeakObject加上notexistkey的校验方法后，单步可以发现free被调用。下面是增加的校验方法。
+```objectivec
+- (BOOL)validateNotexistkey:(id *)value error:(NSError **)error {
+    return YES;
+}
+```
+
+# 总结
+这次泄漏的寻找过程，大致可以分为
+1. 使用Instruments Leak模版初步定位
+1. 使用符号断点深入泄漏方法，如果泄漏的方法不是系统或者第三方静态（动态）库的方法，就不用这么麻烦了。
+1. 关注泄漏内存块的分配释放方式，在源码或者汇编代码中寻找匹配的内存块。
+由于这次泄漏的仅仅是malloc内存块，所以OC的引用计数记录并不能起什么作用。
