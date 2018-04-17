@@ -17,19 +17,19 @@ for(int i = 0; i < 10000 * 1000; ++i) {
     [leakObject validateValue:&value forKey:@"notexistkey" error:nil];
 }
 ```
-当对一个不存在的key进行`validateValue`时，就会有少量内存泄漏。如果执行很多次，结果还是很可观的。上面的代码会让内存飙到160M。
-[截图]
+当对一个没有实现校验方法的key进行`validateValue`时，就会有少量内存泄漏。如果执行很多次，结果还是很可观的。上面的代码会让内存飙到160M。
 
 # 定位泄漏源
 这个泄漏使用Instruments的Leaks模版可以很快的发现，但是代码却不好定位。下面是Leaks报告的泄漏截图。
-【泄漏截图】
+![](https://user-gold-cdn.xitu.io/2018/4/17/162d19775081f680?w=1240&h=233&f=jpeg&s=32123)
+
 可以看出，泄漏发生在`validateValue:forKey:error:`，再细看右边的调用栈，可以看到这块内存是由`malloc`分配的。所以很有可能是这个系统方法内部发生了泄漏。
 
 # 使用符号断点深入观察系统方法
 首先使用符号断点，让程序在`validateValue:forKey:error:`处停下。
-【符号断点】
+![](https://user-gold-cdn.xitu.io/2018/4/17/162d197750bcc39e?w=1240&h=518&f=png&s=205544)
 运行程序，命中断点后，我们就可以观察`validateValue:forKey:error:`的汇编代码了。
-【汇编代码截图】
+![](https://user-gold-cdn.xitu.io/2018/4/17/162d197750e0badd?w=1240&h=916&f=jpeg&s=136552)
 
 # 寻找Leak的内存来源
 在汇编代码中，我发现了一个malloc调用和一个free调用。
