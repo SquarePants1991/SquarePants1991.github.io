@@ -2,7 +2,7 @@
 layout: post
 title:  "第一个OpenGL ES项目"
 date:   2017-06-28 16:13:25 +0800
-categories: 学习OpenGLES系列文章
+categories: test
 ---!
 
 ![](../../post_images/2020-03-10-12-25-55.png)
