@@ -5,6 +5,8 @@ date:   2017-06-28 16:13:25 +0800
 categories: 学习OpenGLES系列文章
 ---!
 
+![](../../post_images/2020-03-10-12-25-55.png)
+
 ### [获取示例代码](https://github.com/SquarePants1991/OpenGLESLearn)，本文代码在分支chapter1中。
 ***
     
