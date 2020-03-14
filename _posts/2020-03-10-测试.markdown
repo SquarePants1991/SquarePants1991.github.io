@@ -1,8 +1,0 @@
----
-layout: post
-title: 测试
-date: 2020-03-10 15:22:12 +0800
-categories: 学习OpenGLES系列文章
----
-
-![](/post_images/2020-03-10-15-49-28.png)
